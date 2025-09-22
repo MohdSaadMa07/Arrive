@@ -1,8 +1,7 @@
-import  { useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from '../../firebase'
 
-
-const IntroPage= ({ isLogin, toggleMode, onClose }) => {
+const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -54,6 +53,21 @@ const IntroPage= ({ isLogin, toggleMode, onClose }) => {
     }
   };
 
+  // 🔹 Navigate to appropriate dashboard based on role
+  const navigateToDashboard = (userData) => {
+    // Set user data for the App component
+    setUser(userData);
+    
+    // Navigate based on role
+    if (userData.role === "student") {
+      onNavigate("/student");
+    } else if (userData.role === "teacher") {
+      onNavigate("/teacher");
+    } else {
+      onNavigate("/"); // fallback to home
+    }
+  };
+
   // 🔹 Handle submit (login/signup)
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -68,10 +82,28 @@ const IntroPage= ({ isLogin, toggleMode, onClose }) => {
 
     try {
       let userCredential;
+      let userData = null;
 
       if (isLogin) {
         // 🔹 Firebase login
         userCredential = await signInWithEmailAndPassword(auth, email, password);
+        
+        // 🔹 Fetch user data from backend after login
+        const uid = userCredential.user.uid;
+        try {
+          const res = await fetch(`http://localhost:5000/api/users/${uid}`);
+          if (res.ok) {
+            userData = await res.json();
+          } else {
+            throw new Error("Could not fetch user data");
+          }
+        } catch (err) {
+          console.error("Error fetching user data:", err);
+          setError("Failed to load user profile. Please try again.");
+          setLoading(false);
+          return;
+        }
+        
         alert("Login successful!");
       } else {
         // 🔹 Firebase signup
@@ -95,10 +127,25 @@ const IntroPage= ({ isLogin, toggleMode, onClose }) => {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Registration failed");
+        
+        // Create user data object for newly registered user
+        userData = {
+          uid,
+          email,
+          fullName,
+          role,
+          studentId: role === "student" ? studentId : null,
+          facultyId: role === "teacher" ? facultyId : null,
+          profileImage: image,
+        };
+        
         alert("Signup successful!");
       }
 
+      // 🔹 Close modal and navigate to appropriate dashboard
       onClose();
+      navigateToDashboard(userData);
+      
     } catch (err) {
       console.error(err);
       setError(err.message);

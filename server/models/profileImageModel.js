@@ -13,9 +13,7 @@ profileImageSchema.pre('save', function(next) {
   next();
 });
 
-profileImageSchema.index({ userId: 1 });
-profileImageSchema.index({ email: 1 });
-profileImageSchema.index({ createdAt: -1 });
+
 
 const ProfileImage = mongoose.model('ProfileImage', profileImageSchema);
 export default ProfileImage;

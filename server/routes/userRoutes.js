@@ -1,8 +1,10 @@
 import express from 'express';
 import {
   registerUser,
-  getUserByUid
-} from '../controllers/userController.js';
+  getUserByUid,
+   getCurrentUser } from '../controllers/userController.js';
+import { authenticateToken } from "../middleware/authMiddleware.js";
+
 
 const router = express.Router();
 
@@ -11,5 +13,9 @@ router.post('/register', registerUser);
 
 // Get user by UID
 router.get('/:uid', getUserByUid);
+
+// Get currently logged in user's info
+router.get('/me', authenticateToken, getCurrentUser);
+
 
 export default router;

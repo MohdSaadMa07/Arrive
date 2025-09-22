@@ -1,46 +1,85 @@
-import React, { useState } from "react";
+// App.jsx - Manual routing without hooks
+import { useState, useEffect } from "react";
 import IntroPage from "./components/introPage";
+import StudentDashboard from "./Pages/StudentDashboard";
+import TeacherDashboard from "./Pages/TeacherDashboard";
 
 function App() {
   const [showModal, setShowModal] = useState(false);
-  const [isLogin, setIsLogin] = useState(false); // start with Sign Up modal
+  const [isLogin, setIsLogin] = useState(true);
+  const [user, setUser] = useState(null);
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   const toggleMode = () => setIsLogin(!isLogin);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-indigo-100 font-sans flex flex-col">
-      
-      
+  // Manual navigation function
+  const navigate = (path) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
 
-      {/* Hero Section */}
-      <main className="flex-grow flex flex-col items-center justify-center text-center px-4 md:px-20">
-        <h1 className="text-5xl md:text-6xl font-extrabold text-indigo-700 mb-6">
-          Arrive
-        </h1>
-        <p className="text-xl md:text-2xl text-gray-700 mb-8 max-w-2xl">
-          Smart attendance system using face recognition. Mark attendance automatically, securely, and effortlessly.
+  // Listen for browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Render based on current path
+  const renderContent = () => {
+    if (currentPath === "/student" && user?.role === "student") {
+      return <StudentDashboard user={user} />;
+    }
+    
+    if (currentPath === "/teacher" && user?.role === "teacher") {
+      return <TeacherDashboard user={user} />;
+    }
+
+    // Redirect logic
+    if (user) {
+      if (user.role === "student") {
+        navigate("/student");
+        return <StudentDashboard user={user} />;
+      } else {
+        navigate("/teacher");
+        return <TeacherDashboard user={user} />;
+      }
+    }
+
+    // Default home page
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-4">
+        <h1 className="text-5xl font-bold mb-4">Arrive</h1>
+        <p className="text-lg mb-8 text-center max-w-xl">
+          Smart attendance system using face recognition. Sign up to start marking attendance effortlessly!
         </p>
         <button
           onClick={() => setShowModal(true)}
-          className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg hover:bg-indigo-700 transition"
+          className="px-8 py-4 bg-white text-indigo-600 font-bold rounded-2xl shadow-lg hover:shadow-xl transition"
         >
           Get Started
         </button>
-      </main>
+      </div>
+    );
+  };
 
-      {/* Footer */}
-      <footer className="text-gray-500 text-sm text-center py-6">
-        &copy; {new Date().getFullYear()} Arrive. All rights reserved.
-      </footer>
-
-      {/* Sign Up / Sign In Modal */}
+  return (
+    <div>
+      {/* Login/Signup Modal */}
       {showModal && (
         <IntroPage
           isLogin={isLogin}
           toggleMode={toggleMode}
           onClose={() => setShowModal(false)}
+          setUser={setUser}
+          onNavigate={navigate} // Pass manual navigate function
         />
       )}
+
+      {renderContent()}
     </div>
   );
 }

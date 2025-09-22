@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import imageRoutes from './routes/imageRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import sessionRoutes from "./routes/sessionRoutes.js";
+
 
 dotenv.config();
 
@@ -17,13 +19,17 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGO_URI;
 
-mongoose.connect(MONGODB_URI )
-  .then(() => console.log('Connected to MongoDB Atlas ✅'))
-  .catch((error) => console.error('MongoDB connection error:', error));
+mongoose.connect(MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('Connected to MongoDB Atlas'))
+.catch((error) => console.error('MongoDB connection error:', error));
 
 // Routes
 app.use('/api', imageRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api', sessionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
