@@ -12,7 +12,7 @@ env
 dist
 dist-ssr
 *.local
-
+serviceAccountKey.json
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
