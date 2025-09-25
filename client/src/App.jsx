@@ -1,4 +1,4 @@
-// App.jsx - Manual routing without hooks
+// App.jsx - Redesigned
 import { useState, useEffect } from "react";
 import IntroPage from "./components/introPage";
 import StudentDashboard from "./Pages/StudentDashboard";
@@ -28,58 +28,67 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Render based on current path
+  // Handle user state and navigation on load or user change
+  useEffect(() => {
+    if (user) {
+      if (user.role === "student" && currentPath !== "/student") {
+        navigate("/student");
+      } else if (user.role === "teacher" && currentPath !== "/teacher") {
+        navigate("/teacher");
+      }
+    }
+  }, [user, currentPath]);
+
+  // Render content based on current path and user role
   const renderContent = () => {
-    if (currentPath === "/student" && user?.role === "student") {
+    if (user?.role === "student" && currentPath === "/student") {
       return <StudentDashboard user={user} />;
     }
     
-    if (currentPath === "/teacher" && user?.role === "teacher") {
+    if (user?.role === "teacher" && currentPath === "/teacher") {
       return <TeacherDashboard user={user} />;
     }
 
-    // Redirect logic
-    if (user) {
-      if (user.role === "student") {
-        navigate("/student");
-        return <StudentDashboard user={user} />;
-      } else {
-        navigate("/teacher");
-        return <TeacherDashboard user={user} />;
-      }
-    }
-
-    // Default home page
+    // Default home page for unauthenticated users
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-4">
-        <h1 className="text-5xl font-bold mb-4">Arrive</h1>
-        <p className="text-lg mb-8 text-center max-w-xl">
-          Smart attendance system using face recognition. Sign up to start marking attendance effortlessly!
-        </p>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-8 py-4 bg-white text-indigo-600 font-bold rounded-2xl shadow-lg hover:shadow-xl transition"
-        >
-          Get Started
-        </button>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-6 relative overflow-hidden">
+        {/* Animated Background */}
+        <div className="absolute inset-0 z-0 bg-gradient-to-br from-indigo-900 via-gray-900 to-purple-900 opacity-80 animate-bg-pulse"></div>
+        <div className="absolute inset-0 z-0 bg-[url('https://www.transparenttextures.com/patterns/connected-dots.png')] opacity-10"></div>
+        
+        {/* Main Content */}
+        <div className="relative z-10 flex flex-col items-center justify-center text-center">
+          <h1 className="text-6xl sm:text-7xl font-extrabold mb-4 animate-fade-in-down drop-shadow-lg">
+            Arrive
+          </h1>
+          <p className="text-lg sm:text-xl mb-10 max-w-2xl text-gray-300 animate-fade-in-up">
+            The next generation of university attendance. Seamless, secure, and smart facial recognition to make your day effortlessly efficient.
+          </p>
+          <button
+            onClick={() => setShowModal(true)}
+            className="px-12 py-5 bg-white text-indigo-600 font-bold rounded-full shadow-2xl hover:scale-105 transform transition-transform duration-300 ease-in-out hover:shadow-indigo-500/50"
+          >
+            Get Started
+          </button>
+        </div>
       </div>
     );
   };
 
   return (
-    <div>
-      {/* Login/Signup Modal */}
+    <div className="font-sans antialiased text-gray-900">
+      {renderContent()}
+
+      {/* Login/Signup Modal with new styling */}
       {showModal && (
         <IntroPage
           isLogin={isLogin}
           toggleMode={toggleMode}
           onClose={() => setShowModal(false)}
           setUser={setUser}
-          onNavigate={navigate} // Pass manual navigate function
+          onNavigate={navigate}
         />
       )}
-
-      {renderContent()}
     </div>
   );
 }
