@@ -1,9 +1,10 @@
-import express from "express";
-import { createSession, getSessionsByTeacher } from "../controllers/sessionController.js";
+import express from 'express';
+import { createSession, getAllSessions } from '../controllers/sessionController.js';
 
-const router = express.Router();
+const sessionrouter = express.Router();
 
-router.post("/sessions", createSession);
-router.get("/sessions/teacher/:facultyId", getSessionsByTeacher);
+// Base path: /api/sessions
+sessionrouter.post('/sessions', createSession);   // POST /api/sessions
+sessionrouter.get('/sessions', getAllSessions);   // GET /api/sessions
 
-export default router;
+export default sessionrouter;

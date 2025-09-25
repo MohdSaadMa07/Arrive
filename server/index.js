@@ -2,11 +2,8 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import imageRoutes from './routes/imageRoutes.js';
 import userRoutes from './routes/userRoutes.js';
-import sessionRoutes from "./routes/sessionRoutes.js";
-
-
+import sessionRoutes from './routes/sessionRoutes.js';
 dotenv.config();
 
 const app = express();
@@ -27,14 +24,9 @@ mongoose.connect(MONGODB_URI, {
 .catch((error) => console.error('MongoDB connection error:', error));
 
 // Routes
-app.use('/api', imageRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', sessionRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
-});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
