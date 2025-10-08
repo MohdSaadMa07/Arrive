@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from "react";
+// Import the new component
+import VerifyAttendance from "./VerifyAttendence";
 
 const StudentDashboard = () => {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [attendanceStats, setAttendanceStats] = useState({});
+  // New state for modal control
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
 
   useEffect(() => {
     const fetchSessions = async () => {
@@ -31,8 +36,23 @@ const StudentDashboard = () => {
     fetchSessions();
   }, []);
 
-  const markAttendance = (sessionId) => {
-    alert(`Attendance marked for session ${sessionId}`);
+  // Updated function to open the modal
+  const handleMarkAttendanceClick = (sessionId) => {
+    setCurrentSessionId(sessionId);
+    setIsModalOpen(true);
+  };
+
+  // Function to close the modal (used inside VerifyAttendance)
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setCurrentSessionId(null);
+  };
+
+  // Placeholder for actual attendance submission
+  const submitAttendance = (sessionId) => {
+    console.log(`Submitting attendance for session ${sessionId} after verification.`);
+    alert(`Attendance verified and marked for session ${sessionId}! ✅`);
+    closeModal(); // Close the modal after submission (or success)
   };
 
   return (
@@ -50,6 +70,7 @@ const StudentDashboard = () => {
 
       {!loading && !error && (
         <>
+          {/* Sessions Grid */}
           <section className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
             {sessions.map(({ _id, subject, date, startTime, endTime }) => (
               <article
@@ -58,7 +79,7 @@ const StudentDashboard = () => {
                 aria-label={`Session: ${subject} on ${new Date(date).toLocaleDateString()}`}
                 className="flex flex-col justify-between rounded-lg bg-white shadow-md hover:shadow-lg focus:shadow-lg focus:outline-none transition-shadow duration-300 p-6 cursor-pointer select-none"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") markAttendance(_id);
+                  if (e.key === "Enter") handleMarkAttendanceClick(_id);
                 }}
               >
                 <div>
@@ -82,7 +103,8 @@ const StudentDashboard = () => {
                   </p>
                 </div>
                 <button
-                  onClick={() => markAttendance(_id)}
+                  // Call the new handler
+                  onClick={() => handleMarkAttendanceClick(_id)}
                   aria-label={`Mark attendance for ${subject}`}
                   className="mt-6 rounded-md bg-indigo-600 text-white py-3 font-semibold shadow-md hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-400 focus:outline-none transition"
                 >
@@ -92,6 +114,9 @@ const StudentDashboard = () => {
             ))}
           </section>
 
+          {/* --- */}
+
+          {/* Attendance Stats Section */}
           <section className="mt-16 bg-white rounded-lg shadow-inner py-10 px-8">
             <h2 className="text-center text-3xl font-bold mb-10 text-gray-900 tracking-tight">
               Subject-wise Attendance
@@ -122,6 +147,15 @@ const StudentDashboard = () => {
             </ul>
           </section>
         </>
+      )}
+      
+      {/* Verification Modal Component */}
+      {isModalOpen && currentSessionId && (
+        <VerifyAttendance
+          sessionId={currentSessionId}
+          closeModal={closeModal}
+          onVerificationSuccess={submitAttendance}
+        />
       )}
     </main>
   );
