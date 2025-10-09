@@ -241,93 +241,85 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
 
   // 🔹 Handle submit (login/signup)
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-    setSuccessMessage("");
-    setLoading(true);
+  e.preventDefault();
+  setError("");
+  setSuccessMessage("");
+  setLoading(true);
 
-    // Update form validity check to include faceDescriptor
-    if (!email || !password || (!isLogin && (!fullName || !faceDescriptor || !image))) {
-      setError("Please fill all required fields, and ensure you have successfully captured a profile photo with a detected face.");
-      setLoading(false);
-      return;
-    }
+  if (!email || !password || (!isLogin && (!fullName || !faceDescriptor || !image))) {
+    setError("Please fill all the required fields and capture your face photo");
+    setLoading(false);
+    return;
+  }
 
-    try {
-      let userCredential;
-      let userData = null;
+  try {
+    let userCredential;
+    let userData = null;
 
-      if (isLogin) {
-        // ... (Login logic remains the same for now)
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const uid = userCredential.user.uid;
-        try {
-          // Fetch user data from backend
-          const res = await fetch(`http://localhost:5000/api/users/${uid}`);
-          if (res.ok) {
-            userData = await res.json();
-          } else {
-            throw new Error("Could not fetch user data from backend");
-          }
-        } catch (err) {
-          console.error("Error fetching user data:", err);
-          setError("Failed to load user profile. Please try again.");
-          setLoading(false);
-          return;
-        }
-        setSuccessMessage("Login successful! Redirecting..."); // Replaced alert()
-      } else {
-        // Firebase signup
-        userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const uid = userCredential.user.uid;
+    if (isLogin) {
+      userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+      const token = await userCredential.user.getIdToken();
 
-        // Send data to backend for profile creation
-        const res = await fetch("http://localhost:5000/api/users/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            uid,
-            email,
-            fullName,
-            role,
-            studentId: role === "student" ? studentId : null,
-            facultyId: role === "teacher" ? facultyId : null,
-            profileImage: image,
-            faceDescriptor: faceDescriptor, // NEW: Include the face descriptor
-          }),
-        });
+      // Important: send Firebase token in Authorization header for backend auth
+      const res = await fetch(`http://localhost:5000/api/users/${uid}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || "Registration failed");
+      if (!res.ok) {
+        const errorResponse = await res.json();
+        throw new Error(errorResponse.message || "Could not fetch user profile");
+      }
+      userData = await res.json();
 
-        // Construct local user data from successful response
-        userData = {
-          uid,
-          email,
-          fullName,
-          role,
+      setSuccessMessage("Login successful! Redirecting...");
+    } else {
+      // Sign up flow unchanged
+      userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      const res = await fetch("http://localhost:5000/api/users/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid, email, fullName, role,
           studentId: role === "student" ? studentId : null,
           facultyId: role === "teacher" ? facultyId : null,
           profileImage: image,
-          faceDescriptor: faceDescriptor,
-        };
-        setSuccessMessage("Signup successful! Profile created."); // Replaced alert()
-      }
+          faceDescriptor,
+        }),
+      });
 
-      // Small delay to show success message before closing modal
-      setTimeout(() => {
-        onClose();
-        navigateToDashboard(userData);
-      }, 1000); 
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Registration failed");
 
-    } catch (err) {
-      console.error(err);
-      // Firebase auth errors have a 'message' property that is often detailed
-      setError(err.message || "An unknown error occurred during authentication.");
-    } finally {
-      setLoading(false);
+      userData = {
+        uid, email, fullName, role,
+        studentId: role === "student" ? studentId : null,
+        facultyId: role === "teacher" ? facultyId : null,
+        profileImage: image,
+        faceDescriptor,
+      };
+
+      setSuccessMessage("Signup successful! Profile created.");
     }
-  };
+
+    setUser(userData);
+    setTimeout(() => {
+      onClose();
+      onNavigate(`/${userData.role}`);
+    }, 1000);
+
+  } catch (err) {
+    setError(err.message || "Authentication error occurred.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // Check form validity for enabling the submit button
   // Form is valid only if faceDescriptor is present during signup

@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from "react";
 
-const dummyAttendance = {
-  Math: 92,
-  Physics: 85,
-  History: 78,
-  Chemistry: 90,
-  English: 88,
-};
+const SUBJECTS = [
+  "Database Management System",
+  "Computer Networks",
+  "Theoretical Computer Science",
+  "Analysis of Algorithms",
+  "Operating System",
+  "Microprocessor",
+  "DataWarehouse and mining",
+  "Sofware Engineering",
+];
 
 const TeacherDashboard = ({ user }) => {
+  // Use hardcoded subjects list, set default selected to first item
+  const [subjectName, setSubjectName] = useState(SUBJECTS[0]);
+
   // Session creation form state
-  const [subject, setSubject] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -22,43 +27,54 @@ const TeacherDashboard = ({ user }) => {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionsError, setSessionsError] = useState(null);
 
-  // Student search and attendance summary state
+  // Student search and attendance summary state (optional)
   const [studentQuery, setStudentQuery] = useState("");
   const [studentData, setStudentData] = useState(null);
   const [searchError, setSearchError] = useState(null);
 
-  // Fetch sessions created by this teacher on component mount and after creating session
+  // Fetch sessions created by this teacher, refetch on creation
   useEffect(() => {
     if (!user?.facultyId) return;
+
     const fetchSessions = async () => {
       setLoadingSessions(true);
       setSessionsError(null);
+
       try {
-        const res = await fetch("http://localhost:5000/api/sessions");
+        // Backend expects facultyId query param to filter sessions
+        const res = await fetch(
+          `http://localhost:5000/api/sessions?facultyId=${encodeURIComponent(user.facultyId)}`
+        );
         if (!res.ok) throw new Error("Failed to fetch sessions");
         const data = await res.json();
-        const filtered = data.filter((s) => s.facultyId === user.facultyId);
-        setSessions(filtered);
+        setSessions(data);
       } catch (err) {
         setSessionsError(err.message);
       } finally {
         setLoadingSessions(false);
       }
     };
+
     fetchSessions();
-  }, [user?.facultyId, creating]); // refetch on session creation
+  }, [user?.facultyId, creating]); // Reload after session creation
+
+  const getSubjectName = (subject) => {
+    if (!subject) return "Unknown Subject";
+    // Since subject saved as string, just return it
+    return subject;
+  };
 
   const handleCreateSession = async (e) => {
     e.preventDefault();
     setError(null);
-    if (!subject || !date || !startTime || !endTime) {
+    if (!subjectName || !date || !startTime || !endTime) {
       setError("Please fill all fields");
       return;
     }
     setCreating(true);
     try {
       const newSession = {
-        subject,
+        subject: subjectName, // send subject as string
         facultyId: user.facultyId,
         date,
         startTime: new Date(`${date}T${startTime}`),
@@ -70,8 +86,6 @@ const TeacherDashboard = ({ user }) => {
         body: JSON.stringify(newSession),
       });
       if (!res.ok) throw new Error("Failed to create session");
-      // Reset form
-      setSubject("");
       setDate("");
       setStartTime("");
       setEndTime("");
@@ -84,11 +98,18 @@ const TeacherDashboard = ({ user }) => {
     }
   };
 
-  // Dummy search handler for demo
+  // Dummy student search for demo
   const handleSearchStudent = () => {
     setSearchError(null);
     setStudentData(null);
     if (studentQuery.trim().toLowerCase() === "john doe") {
+      const dummyAttendance = {
+        Math: 92,
+        Physics: 85,
+        History: 78,
+        Chemistry: 90,
+        English: 88,
+      };
       setStudentData({ id: "12345", name: "John Doe", attendance: dummyAttendance });
     } else if (studentQuery.trim() === "") {
       setSearchError("Please enter a student name or ID");
@@ -108,12 +129,22 @@ const TeacherDashboard = ({ user }) => {
         <section className="bg-white rounded-xl shadow-lg p-8 flex flex-col">
           <h2 className="text-2xl font-semibold mb-6 text-indigo-600">Create New Session</h2>
           <form onSubmit={handleCreateSession} className="flex flex-col space-y-5">
-            <FloatingInput
-              label="Subject"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              required
-            />
+            <label className="block">
+              <span className="text-gray-700">Subject</span>
+              <select
+                value={subjectName}
+                onChange={(e) => setSubjectName(e.target.value)}
+                required
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-3"
+              >
+                {SUBJECTS.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <FloatingInput
               label="Date"
               type="date"
@@ -164,13 +195,22 @@ const TeacherDashboard = ({ user }) => {
                   key={s._id}
                   className="p-4 border rounded-md hover:shadow-md transition cursor-default"
                   tabIndex={0}
-                  aria-label={`Session on ${new Date(s.date).toLocaleDateString()} for ${s.subject}`}
+                  aria-label={`Session on ${new Date(s.date).toLocaleDateString()} for ${getSubjectName(
+                    s.subject
+                  )}`}
                 >
-                  <div className="font-semibold text-indigo-700">{s.subject}</div>
+                  <div className="font-semibold text-indigo-700">{getSubjectName(s.subject)}</div>
                   <div className="text-gray-700 text-sm">
                     {new Date(s.date).toLocaleDateString()} ·{" "}
-                    {new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                    {new Date(s.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {new Date(s.startTime).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
+                    -{" "}
+                    {new Date(s.endTime).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </div>
                 </li>
               ))}
@@ -178,7 +218,7 @@ const TeacherDashboard = ({ user }) => {
           )}
         </section>
 
-        {/* Student Search and Attendance */}
+        {/* Search Student */}
         <section className="bg-white rounded-xl shadow-lg p-8 flex flex-col">
           <h2 className="text-2xl font-semibold mb-6 text-indigo-600">Search Student</h2>
           <input
@@ -198,7 +238,9 @@ const TeacherDashboard = ({ user }) => {
           {searchError && <p className="text-red-600 mt-3">{searchError}</p>}
           {studentData && (
             <div className="mt-6">
-              <p className="mb-4 text-lg font-semibold text-indigo-700">{studentData.name} (ID: {studentData.id})</p>
+              <p className="mb-4 text-lg font-semibold text-indigo-700">
+                {studentData.name} (ID: {studentData.id})
+              </p>
               <ul className="space-y-4 max-h-72 overflow-y-auto">
                 {Object.entries(studentData.attendance).map(([subject, percent]) => (
                   <li key={subject} className="flex items-center space-x-4">
@@ -237,8 +279,8 @@ const FloatingInput = ({ label, type = "text", value, onChange, required }) => (
       className="peer w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-transparent focus:border-indigo-500 focus:ring-indigo-500 focus:outline-none focus:ring-2 transition"
     />
     <label
-      className="absolute left-4 top-3 text-gray-500 text-sm transition-all pointer-events-none 
-        peer-placeholder-shown:top-3 peer-placeholder-shown:left-4 peer-placeholder-shown:text-base peer-placeholder-shown:text-gray-400 
+      className="absolute left-4 top-3 text-gray-500 text-sm transition-all pointer-events-none
+        peer-placeholder-shown:top-3 peer-placeholder-shown:left-4 peer-placeholder-shown:text-base peer-placeholder-shown:text-gray-400
         peer-focus:top-1 peer-focus:left-3 peer-focus:text-indigo-600 peer-focus:text-sm"
     >
       {label}

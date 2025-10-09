@@ -1,10 +1,10 @@
 import express from 'express';
-import { createSession, getAllSessions } from '../controllers/sessionController.js';
+import { createSession, getSessionsByFaculty } from '../controllers/sessionController.js';
 
-const sessionrouter = express.Router();
+const router = express.Router();
 
-// Base path: /api/sessions
-sessionrouter.post('/sessions', createSession);   // POST /api/sessions
-sessionrouter.get('/sessions', getAllSessions);   // GET /api/sessions
+// Remove the extra '/sessions' path here. Just define routes at '/'
+router.post('/', createSession);
+router.get('/', getSessionsByFaculty);
 
-export default sessionrouter;
+export default router;
