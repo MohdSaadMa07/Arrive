@@ -1,92 +1,127 @@
 import React, { useRef, useEffect, useState } from "react";
+import * as faceapi from 'face-api.js';
 
 const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
   const videoRef = useRef(null);
   const [verificationStatus, setVerificationStatus] = useState("Awaiting face capture...");
+  const [modelsLoaded, setModelsLoaded] = useState(false);
 
+  // Model loading logic
   useEffect(() => {
-    // Attempt to access the user's camera
-    const startCamera = async () => {
+    const loadModels = async () => {
+      if (!faceapi || !faceapi.nets) {
+        setVerificationStatus("Error: face-api.js is not loaded. Check script tag setup.");
+        return;
+      }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        const MODEL_URL = "/models";
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
+        setModelsLoaded(true);
       } catch (err) {
-        console.error("Error accessing camera: ", err);
-        setVerificationStatus("Error: Camera access denied or not available. 🚫");
+        setVerificationStatus("Error loading models: " + err.message);
       }
     };
+    loadModels();
 
-    startCamera();
-
-    // Cleanup function to stop the camera when the component unmounts
+    // Cleanup camera on unmount
     return () => {
       if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = videoRef.current.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
+        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       }
     };
   }, []);
 
-  const handleVerification = () => {
-    setVerificationStatus("Processing facial verification... 🤖");
-
-    // --- Placeholder for actual Facial Recognition Logic ---
-    // In a real application, you'd send the captured image/video to a backend
-    // service for processing.
-    setTimeout(() => {
-      // Simulate successful verification
-      const success = Math.random() > 0.3; // 70% chance of success
-
-      if (success) {
-        setVerificationStatus("Verification Successful! 🎉");
-        // Pass the sessionId back to the parent to mark attendance
-        onVerificationSuccess(sessionId); 
-      } else {
-        setVerificationStatus("Verification Failed. Please try again. 😔");
-        // You might keep the modal open or prompt a retry
+  // Start camera after models are loaded
+  useEffect(() => {
+    if (!modelsLoaded) return;
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      } catch (err) {
+        setVerificationStatus("Error: Camera access denied or not available.");
       }
-    }, 3000); // Wait 3 seconds to simulate processing time
+    };
+    startCamera();
+  }, [modelsLoaded]);
+
+  const handleVerification = async () => {
+    setVerificationStatus("Processing facial verification...");
+    if (!videoRef.current) {
+      setVerificationStatus("Error: No video element available.");
+      return;
+    }
+    if (!faceapi || !faceapi.nets) {
+      setVerificationStatus("Error: face-api.js is not loaded.");
+      return;
+    }
+    try {
+      const result = await faceapi
+        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
+
+      if (!result || !result.descriptor) {
+        setVerificationStatus("No face detected! Please center your face and try again.");
+        return;
+      }
+
+      // Send to backend
+      const res = await fetch("http://localhost:5000/api/users/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateDescriptor: Array.from(result.descriptor),
+          sessionId,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setVerificationStatus(`Verification Successful! Attendance marked for ${data.user.fullName || "this session"} 🎉`);
+        onVerificationSuccess(sessionId);
+      } else {
+        setVerificationStatus(data.message || "Verification Failed. Please try again.");
+      }
+    } catch (err) {
+      setVerificationStatus("Face verification failed: " + err.message);
+    }
   };
 
   return (
-    // Modal Overlay
     <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-8 transform transition-all scale-100 animate-fade-in">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-8">
         <h2 className="text-3xl font-bold mb-4 text-center text-indigo-700">Face Verification</h2>
         <p className="text-gray-600 mb-6 text-center">
-          Verify your identity to mark attendance for Session ID: <strong className="font-mono">{sessionId}</strong>.
+          Verify your identity to mark attendance for Session ID: <strong>{sessionId}</strong>
         </p>
-
-        {/* Video Feed Area */}
         <div className="aspect-video bg-gray-200 rounded-lg overflow-hidden mb-6 border-2 border-indigo-300">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover transform scale-x-[-1]" // mirror effect
-          />
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         </div>
-
-        <p className={`text-center font-semibold mb-6 ${verificationStatus.includes("Error") ? 'text-red-500' : 'text-gray-700'}`}>
+        <p className={`text-center font-semibold mb-6 ${verificationStatus.includes("Error") ? "text-red-500" : "text-gray-700"}`}>
           {verificationStatus}
         </p>
-
-        {/* Action Buttons */}
         <div className="flex justify-between space-x-4">
           <button
             onClick={closeModal}
-            className="flex-1 rounded-lg bg-gray-500 text-white py-3 font-semibold shadow-md hover:bg-gray-600 focus:ring-2 focus:ring-gray-400 focus:outline-none transition"
+            className="flex-1 rounded-lg bg-gray-500 text-white py-3 font-semibold shadow-md hover:bg-gray-600"
             disabled={verificationStatus.includes("Processing")}
           >
             Cancel
           </button>
           <button
             onClick={handleVerification}
-            className="flex-1 rounded-lg bg-indigo-600 text-white py-3 font-semibold shadow-md hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-400 focus:outline-none transition"
-            disabled={verificationStatus.includes("Error") || verificationStatus.includes("Processing") || verificationStatus.includes("Successful")}
+            className="flex-1 rounded-lg bg-indigo-600 text-white py-3 font-semibold shadow-md hover:bg-indigo-700"
+            disabled={
+              verificationStatus.includes("Error") ||
+              verificationStatus.includes("Processing") ||
+              verificationStatus.includes("Successful") ||
+              !modelsLoaded
+            }
           >
             Verify Face & Mark Attendance
           </button>

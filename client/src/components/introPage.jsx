@@ -1,31 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-// FIX: Changing the import path to explicitly target '/firebase.js' in the root, 
-// which is sometimes necessary when deep inside a directory structure like 'src/components/'.
 import { auth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from '../../firebase';
-// FIX: Mocking the faceapi import to prevent compilation errors and ensure proper method chaining.
-// Assumes faceapi.js is loaded via a CDN <script> tag in index.html.
-const faceapi = window.faceapi || { 
-  nets: { 
-    tinyFaceDetector: { loadFromUri: () => Promise.resolve() },
-    faceLandmark68TinyNet: { loadFromUri: () => Promise.resolve() },
-    faceRecognitionNet: { loadFromUri: () => Promise.resolve() }
-  },
-  TinyFaceDetectorOptions: function() {},
-  detectSingleFace: () => Promise.resolve(),
-  // Using descriptive placeholder names (results, displaySize)
-  resizeResults: (results, displaySize) => results, 
-  
-  // FIX: Updated mock for chaining: 
-  // withFaceLandmarks should return an object that contains the next method in the chain.
-  // The real faceapi.js function `faceapi.withFaceLandmarks(input, results)` returns an object 
-  // that can be chained with withFaceDescriptor(). Here we mock the behavior of 
-  // `detectSingleFace().withFaceLandmarks(true).withFaceDescriptor()`
-  withFaceLandmarks: () => ({ withFaceDescriptor: () => Promise.resolve() }),
-  withFaceDescriptor: () => Promise.resolve() // The standalone mock is fine, but the chain was the issue.
-};
+import * as faceapi from 'face-api.js';
 
 const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
-  // Authentication & Form States
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -35,52 +12,40 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
-
-  // Webcam & Face-API States
   const [showWebcam, setShowWebcam] = useState(false);
   const [image, setImage] = useState(null);
-  const [faceDescriptor, setFaceDescriptor] = useState(null); // NEW STATE for face descriptor
-  const [modelsLoaded, setModelsLoaded] = useState(false); 
+  const [faceDescriptor, setFaceDescriptor] = useState(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
-  // 1. Model Loading Logic
+  // Load face-api.js models from /models directory
   const loadModels = async () => {
     setLoading(true);
     setError("");
     try {
-      const MODEL_URL = '/models'; 
-      console.log("Starting model load from: " + MODEL_URL);
-
-      // Loading required models: detection, alignment (tiny), and recognition (for descriptor)
+      const MODEL_URL = '/models';
       await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL), 
-        faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL), 
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
         faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
       ]);
       setModelsLoaded(true);
-      console.log("All required models loaded successfully.");
     } catch (err) {
-      console.error("Error loading models:", err);
-      setError("Failed to load required face detection models. Check network and model files in /public/models.");
+      setError("Failed to load models: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load models on component mount and clean up webcam stream on unmount
   useEffect(() => {
     loadModels();
-    
-    return () => {
-      // Cleanup function to stop the webcam stream if it's active when component unmounts
-      stopWebcam();
-    };
+    return () => stopWebcam();
+    // eslint-disable-next-line
   }, []);
 
-
-  // 🔹 Stop webcam
+  // Stop webcam stream
   const stopWebcam = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -89,7 +54,7 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
     setShowWebcam(false);
   };
 
-  // 🔹 Start webcam
+  // Start webcam stream
   const startWebcam = async () => {
     if (!modelsLoaded) {
       setError("Face models are still loading. Please wait.");
@@ -97,37 +62,31 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
     }
     setError("");
     setSuccessMessage("");
-    // Reset image and descriptor on retake
     setImage(null);
-    setFaceDescriptor(null); 
-    
+    setFaceDescriptor(null);
     try {
       setShowWebcam(true);
-      // Request video stream with specific resolution
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480 },
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Optionally listen for video loaded metadata to ensure dimension are set
         videoRef.current.onloadedmetadata = () => videoRef.current.play();
       }
     } catch (err) {
-      console.error(err);
       setError("Cannot access webcam. Check permissions or if another app is using the camera.");
     }
   };
 
-  // 🔹 Capture photo AND calculate descriptor
+  // Capture photo and calculate face descriptor
   const capturePhoto = async () => {
     if (!videoRef.current) return;
-
     setError(""); // Clear previous error
 
     const displaySize = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight };
-    
-    // 2. Create a temporary canvas for detection and descriptor calculation
+
+    // Draw current video frame to temp canvas
     const tempCanvas = document.createElement("canvas");
     tempCanvas.width = displaySize.width;
     tempCanvas.height = displaySize.height;
@@ -136,193 +95,125 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
 
     let result;
     try {
-      // Perform detection, landmark finding, AND descriptor calculation
-      // ISSUE WAS HERE: faceapi.detectSingleFace() returns a Promise<DetectFaceResult> 
-      // which has the chaining methods only if it resolves with an object that contains 
-      // the methods (e.g., when a face is detected).
-      // Since we are mocking `detectSingleFace` to return a Promise that resolves 
-      // to nothing by default, the chaining failed.
-      
-      // Let's replace the chain with a robust mock return structure if we can't run the actual library.
-      // However, if the library IS loaded (i.e., window.faceapi is defined), we should use the actual function.
-
-      if (window.faceapi) {
-        // Use the actual faceapi implementation
-        result = await faceapi
-            .detectSingleFace(tempCanvas, new faceapi.TinyFaceDetectorOptions())
-            .withFaceLandmarks(true) 
-            .withFaceDescriptor(); 
-      } else {
-        // Use the mock implementation for environments where faceapi is not fully loaded
-        // This mock ensures that `result` has the expected properties (detection, descriptor)
-        result = {
-          detection: { box: { x: 100, y: 100, width: 200, height: 200 } },
-          descriptor: new Float32Array(128).fill(Math.random()), // Mock descriptor
-        };
-        console.warn("Using faceapi mock for capturePhoto logic.");
-      }
-
+      result = await faceapi
+        .detectSingleFace(tempCanvas, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
     } catch (e) {
-      console.error("Face detection and descriptor calculation failed:", e);
-      setError("Error during face processing. Ensure models are loaded correctly and a face is visible.");
+      setError("Face processing failed: " + e.message);
       return;
     }
-
 
     if (!result || !result.descriptor) {
-      setError("No face detected or descriptor could not be calculated! Please center your face in the camera frame and try again.");
+      setError("No face detected! Please center your face in the camera frame and try again.");
       return;
     }
 
-    // 3. Store the descriptor
-    // Descriptors are Float32Array, which must be converted to a JSON-safe array for storage/transfer
-    setFaceDescriptor(Array.from(result.descriptor)); 
+    setFaceDescriptor(Array.from(result.descriptor));
 
-    // 4. Capture the image (with overlay for visual feedback)
+    // -- IMAGE CROPPING/CANVAS LOGIC --
     const finalCanvas = document.createElement("canvas");
     finalCanvas.width = displaySize.width;
-    finalCanvas.height = displaySize.width; // Use width for height to ensure square aspect in the final image
+    finalCanvas.height = displaySize.width; // Ensure square
     const ctx = finalCanvas.getContext("2d");
-    
-    // Calculate aspect ratio of the video to center the crop
     const videoRatio = videoRef.current.videoWidth / videoRef.current.videoHeight;
-    const cropSize = Math.min(finalCanvas.width, finalCanvas.height);
-    
-    let sourceX = 0;
-    let sourceY = 0;
-    let sourceWidth = videoRef.current.videoWidth;
-    let sourceHeight = videoRef.current.videoHeight;
-
-    // Center the crop to match the square canvas (optional, but makes for cleaner profile pics)
-    if (videoRatio > 1) { // Wider than tall
-        sourceWidth = videoRef.current.videoHeight;
-        sourceX = (videoRef.current.videoWidth - sourceWidth) / 2;
-    } else if (videoRatio < 1) { // Taller than wide
-        sourceHeight = videoRef.current.videoWidth;
-        sourceY = (videoRef.current.videoHeight - sourceHeight) / 2;
+    let sourceX = 0, sourceY = 0, sourceWidth = videoRef.current.videoWidth, sourceHeight = videoRef.current.videoHeight;
+    if (videoRatio > 1) {
+      sourceWidth = videoRef.current.videoHeight;
+      sourceX = (videoRef.current.videoWidth - sourceWidth) / 2;
+    } else if (videoRatio < 1) {
+      sourceHeight = videoRef.current.videoWidth;
+      sourceY = (videoRef.current.videoHeight - sourceHeight) / 2;
     }
-
-    // Draw the image, cropping it square
     ctx.drawImage(videoRef.current, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, finalCanvas.width, finalCanvas.height);
-    
-    // Draw the detection box
-    // Since the original code drew on the finalCanvas, let's keep it simple and draw the resized box on the final (potentially cropped) canvas
-    // Note: We must ensure `result.detection` exists before calling resizeResults, which it might not in the real faceapi if no face is detected.
-    // The mock above ensures it does, but we add a safety check.
-    const detectionToResize = result.detection ? result : { detection: { box: { x: 0, y: 0, width: 0, height: 0 } } };
 
+    // Draw detection box if available
+    const detectionToResize = result.detection ? result : { detection: { box: { x: 0, y: 0, width: 0, height: 0 } } };
     const resizedDetection = faceapi.resizeResults(detectionToResize, { width: finalCanvas.width, height: finalCanvas.height });
     const box = resizedDetection.detection.box;
-    
-    // Only draw the box if the mock produced a valid box or real detection happened
     if (box.width > 0 && box.height > 0) {
-        ctx.strokeStyle = '#22c55e'; // Green color for success
-        ctx.lineWidth = 4;
-        ctx.strokeRect(box.x, box.y, box.width, box.height);
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
     }
-
 
     setImage(finalCanvas.toDataURL("image/jpeg"));
     setError("");
     stopWebcam();
   };
 
-  // 🔹 Navigate to appropriate dashboard based on role
-  const navigateToDashboard = (userData) => {
-    setUser(userData);
-    if (userData.role === "student") {
-      onNavigate("/student");
-    } else if (userData.role === "teacher") {
-      onNavigate("/teacher");
-    } else {
-      onNavigate("/");
-    }
-  };
-
-  // 🔹 Handle submit (login/signup)
+  // Submit (login/signup)
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setError("");
-  setSuccessMessage("");
-  setLoading(true);
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+    setLoading(true);
 
-  if (!email || !password || (!isLogin && (!fullName || !faceDescriptor || !image))) {
-    setError("Please fill all the required fields and capture your face photo");
-    setLoading(false);
-    return;
-  }
+    if (!email || !password || (!isLogin && (!fullName || !faceDescriptor || !image))) {
+      setError("Please fill all the required fields and capture your face photo");
+      setLoading(false);
+      return;
+    }
 
-  try {
-    let userCredential;
-    let userData = null;
-
-    if (isLogin) {
-      userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
-      const token = await userCredential.user.getIdToken();
-
-      // Important: send Firebase token in Authorization header for backend auth
-      const res = await fetch(`http://localhost:5000/api/users/${uid}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        const errorResponse = await res.json();
-        throw new Error(errorResponse.message || "Could not fetch user profile");
-      }
-      userData = await res.json();
-
-      setSuccessMessage("Login successful! Redirecting...");
-    } else {
-      // Sign up flow unchanged
-      userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
-
-      const res = await fetch("http://localhost:5000/api/users/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    try {
+      let userCredential;
+      let userData = null;
+      if (isLogin) {
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const uid = userCredential.user.uid;
+        const token = await userCredential.user.getIdToken();
+        const res = await fetch(`http://localhost:5000/api/users/${uid}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!res.ok) {
+          const errorResponse = await res.json();
+          throw new Error(errorResponse.message || "Could not fetch user profile");
+        }
+        userData = await res.json();
+        setSuccessMessage("Login successful! Redirecting...");
+      } else {
+        // Sign up flow
+        userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const uid = userCredential.user.uid;
+        const res = await fetch("http://localhost:5000/api/users/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uid, email, fullName, role,
+            studentId: role === "student" ? studentId : null,
+            facultyId: role === "teacher" ? facultyId : null,
+            profileImage: image,
+            faceDescriptor,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Registration failed");
+        userData = {
           uid, email, fullName, role,
           studentId: role === "student" ? studentId : null,
           facultyId: role === "teacher" ? facultyId : null,
           profileImage: image,
           faceDescriptor,
-        }),
-      });
+        };
+        setSuccessMessage("Signup successful! Profile created.");
+      }
+      setUser(userData);
+      setTimeout(() => {
+        onClose();
+        onNavigate(`/${userData.role}`);
+      }, 1000);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Registration failed");
-
-      userData = {
-        uid, email, fullName, role,
-        studentId: role === "student" ? studentId : null,
-        facultyId: role === "teacher" ? facultyId : null,
-        profileImage: image,
-        faceDescriptor,
-      };
-
-      setSuccessMessage("Signup successful! Profile created.");
+    } catch (err) {
+      setError(err.message || "Authentication error occurred.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setUser(userData);
-    setTimeout(() => {
-      onClose();
-      onNavigate(`/${userData.role}`);
-    }, 1000);
-
-  } catch (err) {
-    setError(err.message || "Authentication error occurred.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-  // Check form validity for enabling the submit button
-  // Form is valid only if faceDescriptor is present during signup
+  // Form validity
   const isFormValid = isLogin || (fullName && email && password && (role === "student" ? studentId : facultyId) && image && faceDescriptor);
 
   return (
@@ -334,23 +225,19 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
         >
           ✕
         </button>
-
         <div className="flex flex-col md:flex-row h-full">
-
-          {/* Left Side: The "Portal" (Webcam/Image Capture) */}
+          {/* Left: Webcam portal */}
           <div className="md:w-1/2 p-8 flex flex-col justify-center items-center relative bg-gradient-to-br from-indigo-900 to-slate-900 text-white overflow-hidden">
             <div className="absolute inset-0 z-0 opacity-20" style={{
-                backgroundImage: "radial-gradient(#ffffff33 1px, transparent 1px)",
-                backgroundSize: "20px 20px"
+              backgroundImage: "radial-gradient(#ffffff33 1px, transparent 1px)",
+              backgroundSize: "20px 20px"
             }}></div>
             <div className="relative z-10 w-full flex flex-col items-center">
-                {/* Model Loading Status */}
-                {!modelsLoaded && (
-                    <div className="text-center mb-4 p-2 rounded-lg bg-yellow-600/30 text-yellow-300 border border-yellow-500">
-                        {loading ? "Loading Face-API Models..." : "Initializing..."}
-                    </div>
-                )}
-                
+              {!modelsLoaded && (
+                <div className="text-center mb-4 p-2 rounded-lg bg-yellow-600/30 text-yellow-300 border border-yellow-500">
+                  {loading ? "Loading Face-API Models..." : "Initializing..."}
+                </div>
+              )}
               <div className="relative w-48 h-48 sm:w-64 sm:h-64 rounded-full border-2 border-indigo-400 p-1 flex items-center justify-center mb-6">
                 <div className="w-full h-full rounded-full overflow-hidden">
                   {showWebcam ? (
@@ -358,7 +245,7 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
                       ref={videoRef}
                       autoPlay
                       playsInline
-                      muted // Mute video feed to prevent feedback
+                      muted
                       className="w-full h-full object-cover"
                     />
                   ) : image ? (
@@ -370,17 +257,14 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
                     </div>
                   )}
                 </div>
-                {/* Visual indicator of success/failure */}
                 {image && faceDescriptor && (
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-green-500/80 text-white text-xs rounded-full shadow-lg font-medium">Face Captured!</div>
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-green-500/80 text-white text-xs rounded-full shadow-lg font-medium">Face Captured!</div>
                 )}
                 {image && !faceDescriptor && !showWebcam && (
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-red-500/80 text-white text-xs rounded-full shadow-lg font-medium">No Descriptor! Retake.</div>
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-red-500/80 text-white text-xs rounded-full shadow-lg font-medium">No Descriptor! Retake.</div>
                 )}
-                {/* Simulated high-tech border/animation */}
                 <div className="absolute inset-0 rounded-full border-4 border-dashed border-indigo-500 animate-spin-slow"></div>
               </div>
-
               {!isLogin && (
                 <div className="flex flex-col items-center space-y-4 w-full">
                   {!showWebcam && (!image || !faceDescriptor) && (
@@ -424,8 +308,7 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
               )}
             </div>
           </div>
-
-          {/* Right Side: The Form */}
+          {/* Form */}
           <div className="md:w-1/2 p-8 md:p-12 space-y-6 flex flex-col justify-center text-gray-200">
             <div className="text-center">
               <h2 className="text-4xl font-extrabold text-white mb-2">
@@ -433,25 +316,19 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
               </h2>
               <p className="text-gray-400">{isLogin ? "Welcome back!" : "Join the future of attendance."}</p>
             </div>
-
-            {/* Error Message Box */}
             {error && (
               <div className="bg-red-500/20 border-l-4 border-red-500 text-red-300 p-4 rounded-lg">
                 <p>{error}</p>
               </div>
             )}
-            
-            {/* Success Message Box */}
             {successMessage && (
               <div className="bg-green-500/20 border-l-4 border-green-500 text-green-300 p-4 rounded-lg">
                 <p>{successMessage}</p>
               </div>
             )}
-
             <form className="space-y-4" onSubmit={handleSubmit}>
               {!isLogin && (
                 <>
-                  {/* Role selection */}
                   <div className="flex space-x-2 bg-gray-700 rounded-full p-1 transition-all">
                     <button
                       type="button"
@@ -468,8 +345,6 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
                       Teacher
                     </button>
                   </div>
-
-                  {/* Full Name & ID */}
                   <input
                     type="text"
                     placeholder="Full Name"
@@ -499,8 +374,6 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
                   )}
                 </>
               )}
-
-              {/* Email & Password */}
               <input
                 type="email"
                 placeholder="Email"
@@ -515,18 +388,16 @@ const IntroPage = ({ isLogin, toggleMode, onClose, setUser, onNavigate }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white"
               />
-
               <button
                 type="submit"
                 disabled={loading || !modelsLoaded || !isFormValid}
                 className="w-full py-4 px-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-gray-600 transition-colors font-bold text-lg"
               >
-                {loading ? "Processing..." : 
-                 !modelsLoaded ? "Waiting for Models..." : 
-                 isLogin ? "Sign In" : "Sign Up"}
+                {loading ? "Processing..." :
+                  !modelsLoaded ? "Waiting for Models..." :
+                  isLogin ? "Sign In" : "Sign Up"}
               </button>
             </form>
-
             <p className="text-center text-gray-500 mt-4">
               {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
               <button onClick={toggleMode} className="text-indigo-400 font-semibold hover:underline transition-colors">
