@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from "react";
-import * as faceapi from 'face-api.js';
+import React, { useRef, useEffect, useState } from "react";
+import * as faceapi from "face-api.js";
 
 const VerifyAttendance = ({
   sessionId,
@@ -9,7 +9,7 @@ const VerifyAttendance = ({
   setVerificationStatus,
 }) => {
   const videoRef = useRef(null);
-  const [modelsLoaded, setModelsLoaded] = React.useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -27,11 +27,10 @@ const VerifyAttendance = ({
     };
     loadModels();
 
-    // Cleanup video stream properly
-    const videoElement = videoRef.current;
     return () => {
+      const videoElement = videoRef.current;
       if (videoElement?.srcObject) {
-        videoElement.srcObject.getTracks().forEach(track => track.stop());
+        videoElement.srcObject.getTracks().forEach((track) => track.stop());
       }
     };
   }, [setVerificationStatus]);
@@ -49,46 +48,57 @@ const VerifyAttendance = ({
     startCamera();
   }, [modelsLoaded, setVerificationStatus]);
 
-  const handleVerification = async () => {
-    setVerificationStatus("Processing facial verification...");
-    if (!videoRef.current) {
-      setVerificationStatus("Error: No video element available.");
+  const handleVerification = () => {
+    setVerificationStatus("Acquiring location...");
+
+    if (!navigator.geolocation) {
+      setVerificationStatus("Geolocation not supported by browser.");
       return;
     }
-    if (!faceapi || !faceapi.nets) {
-      setVerificationStatus("Error: face-api.js is not loaded.");
-      return;
-    }
-    try {
-      const result = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks(true)
-        .withFaceDescriptor();
 
-      if (!result || !result.descriptor) {
-        setVerificationStatus("No face detected! Please center your face and try again.");
-        return;
+    navigator.geolocation.getCurrentPosition(
+      async () => {
+        setVerificationStatus("Location verified. Processing face verification...");
+
+        try {
+          const result = await faceapi
+            .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks(true)
+            .withFaceDescriptor();
+
+          if (!result || !result.descriptor) {
+            setVerificationStatus("No face detected! Please center your face and try again.");
+            return;
+          }
+
+          const res = await fetch("http://localhost:5000/api/users/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              candidateDescriptor: Array.from(result.descriptor),
+              sessionId,
+            }),
+          });
+
+          const data = await res.json();
+          if (data.success) {
+            setVerificationStatus(
+              `Verification Successful! Attendance marked for ${
+                data.user.fullName || "this session"
+              } 🎉`
+            );
+            onVerificationSuccess(sessionId);
+          } else {
+            setVerificationStatus(data.message || "Verification Failed. Please try again.");
+          }
+        } catch (err) {
+          setVerificationStatus("Face verification failed: " + err.message);
+        }
+      },
+      () => {
+        setVerificationStatus("Unable to retrieve your location. Cannot verify attendance.");
       }
-
-      const res = await fetch("http://localhost:5000/api/users/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidateDescriptor: Array.from(result.descriptor),
-          sessionId,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setVerificationStatus(`Verification Successful! Attendance marked for ${data.user.fullName || "this session"} 🎉`);
-        onVerificationSuccess(sessionId);
-      } else {
-        setVerificationStatus(data.message || "Verification Failed. Please try again.");
-      }
-    } catch (err) {
-      setVerificationStatus("Face verification failed: " + err.message);
-    }
+    );
   };
 
   return (
@@ -101,9 +111,7 @@ const VerifyAttendance = ({
         <div className="aspect-video bg-gray-200 rounded-lg overflow-hidden mb-6 border-2 border-indigo-300">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         </div>
-        <p className="text-center font-semibold mb-6 text-red-500">
-  {verificationStatus}
-</p>
+        <p className="text-center font-semibold mb-6 text-red-500">{verificationStatus}</p>
 
         <div className="flex justify-between space-x-4">
           <button
@@ -118,7 +126,7 @@ const VerifyAttendance = ({
             className="flex-1 rounded-lg bg-indigo-600 text-white py-3 font-semibold shadow-md hover:bg-indigo-700"
             disabled={
               (verificationStatus.toLowerCase().includes("error") &&
-               !verificationStatus.toLowerCase().includes("attendance can only be marked")) ||
+                !verificationStatus.toLowerCase().includes("attendance can only be marked")) ||
               verificationStatus.includes("Processing") ||
               verificationStatus.includes("Successful") ||
               !modelsLoaded

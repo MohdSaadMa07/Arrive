@@ -4,9 +4,9 @@ import Session from '../models/sessionModel.js';
 export const createSession = async (req, res) => {
   try {
     console.log('Request Body:', req.body);
-    const { subject, facultyId, date, startTime, endTime } = req.body;
+    const { subject, facultyId, date, startTime, endTime, latitude, longitude } = req.body;
 
-    if (!(subject && facultyId && date && startTime && endTime)) {
+    if (!(subject && facultyId && date && startTime && endTime && latitude !== undefined && longitude !== undefined)) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -16,6 +16,8 @@ export const createSession = async (req, res) => {
       date: new Date(date),
       startTime: new Date(startTime),
       endTime: new Date(endTime),
+      latitude,
+      longitude,
     });
 
     await session.save();
@@ -26,7 +28,6 @@ export const createSession = async (req, res) => {
     res.status(500).json({ message: 'Failed to create session', error: error.message });
   }
 };
-
 
 // Get sessions filtered by facultyId (teacher) — unchanged
 export const getSessionsByFaculty = async (req, res) => {
@@ -43,7 +44,6 @@ export const getSessionsByFaculty = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch sessions", error: error.message });
   }
 };
-
 
 export const getAllSessions = async (req, res) => {
   try {

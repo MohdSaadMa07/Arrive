@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const SUBJECTS = [
   "Database Management System",
@@ -11,57 +14,83 @@ const SUBJECTS = [
   "Sofware Engineering",
 ];
 
-const TeacherDashboard = ({ user }) => {
-  // Use hardcoded subjects list, set default selected to first item
-  const [subjectName, setSubjectName] = useState(SUBJECTS[0]);
 
-  // Session creation form state
+
+const mapContainerStyle = {
+  height: '300px',
+  width: '100%',
+};
+
+const TeacherDashboard = ({ user }) => {
+  const [subjectName, setSubjectName] = useState(SUBJECTS[0]);
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
 
-  // Sessions list state
   const [sessions, setSessions] = useState([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionsError, setSessionsError] = useState(null);
 
-  // Student search and attendance summary state (optional)
   const [studentQuery, setStudentQuery] = useState("");
   const [studentData, setStudentData] = useState(null);
   const [searchError, setSearchError] = useState(null);
 
-  // Fetch sessions created by this teacher, refetch on creation
+  const [latitude, setLatitude] = useState(19.06860769110092);
+  const [longitude, setLongitude] = useState(72.879095243857);
+
   useEffect(() => {
     if (!user?.facultyId) return;
 
+    let mounted = true;
     const fetchSessions = async () => {
       setLoadingSessions(true);
       setSessionsError(null);
 
       try {
-        // Backend expects facultyId query param to filter sessions
         const res = await fetch(
           `http://localhost:5000/api/sessions?facultyId=${encodeURIComponent(user.facultyId)}`
         );
         if (!res.ok) throw new Error("Failed to fetch sessions");
         const data = await res.json();
-        setSessions(data);
+        if (mounted) setSessions(data);
       } catch (err) {
-        setSessionsError(err.message);
+        if (mounted) setSessionsError(err.message);
       } finally {
-        setLoadingSessions(false);
+        if (mounted) setLoadingSessions(false);
       }
     };
 
     fetchSessions();
-  }, [user?.facultyId, creating]); // Reload after session creation
+    return () => { mounted = false; };
+  }, [user?.facultyId, creating]);
 
   const getSubjectName = (subject) => {
     if (!subject) return "Unknown Subject";
-    // Since subject saved as string, just return it
     return subject;
+  };
+
+  // Leaflet LocationPicker component inside TeacherDashboard
+  const LocationPicker = ({ lat, lng, onLatChange, onLngChange }) => {
+    const [markerPos, setMarkerPos] = useState([lat, lng]);
+
+    const onDragEnd = (event) => {
+      const latLng = event.target.getLatLng();
+      setMarkerPos([latLng.lat, latLng.lng]);
+      onLatChange(latLng.lat);
+      onLngChange(latLng.lng);
+    };
+
+    return (
+      <MapContainer center={markerPos} zoom={15} style={mapContainerStyle}>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; OpenStreetMap contributors'
+        />
+        <Marker position={markerPos} draggable={true} eventHandlers={{ dragend: onDragEnd }} />
+      </MapContainer>
+    );
   };
 
   const handleCreateSession = async (e) => {
@@ -74,11 +103,13 @@ const TeacherDashboard = ({ user }) => {
     setCreating(true);
     try {
       const newSession = {
-        subject: subjectName, // send subject as string
+        subject: subjectName,
         facultyId: user.facultyId,
         date,
         startTime: new Date(`${date}T${startTime}`),
         endTime: new Date(`${date}T${endTime}`),
+        latitude,
+        longitude,
       };
       const res = await fetch("http://localhost:5000/api/sessions", {
         method: "POST",
@@ -98,7 +129,6 @@ const TeacherDashboard = ({ user }) => {
     }
   };
 
-  // Dummy student search for demo
   const handleSearchStudent = () => {
     setSearchError(null);
     setStudentData(null);
@@ -145,13 +175,7 @@ const TeacherDashboard = ({ user }) => {
               </select>
             </label>
 
-            <FloatingInput
-              label="Date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-            />
+            <FloatingInput label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
             <FloatingInput
               label="Start Time"
               type="time"
@@ -159,13 +183,11 @@ const TeacherDashboard = ({ user }) => {
               onChange={(e) => setStartTime(e.target.value)}
               required
             />
-            <FloatingInput
-              label="End Time"
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              required
-            />
+            <FloatingInput label="End Time" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+
+            {/* Map location picker */}
+            <LocationPicker lat={latitude} lng={longitude} onLatChange={setLatitude} onLngChange={setLongitude} />
+
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <button
               disabled={creating}
@@ -195,22 +217,13 @@ const TeacherDashboard = ({ user }) => {
                   key={s._id}
                   className="p-4 border rounded-md hover:shadow-md transition cursor-default"
                   tabIndex={0}
-                  aria-label={`Session on ${new Date(s.date).toLocaleDateString()} for ${getSubjectName(
-                    s.subject
-                  )}`}
+                  aria-label={`Session on ${new Date(s.date).toLocaleDateString()} for ${getSubjectName(s.subject)}`}
                 >
                   <div className="font-semibold text-indigo-700">{getSubjectName(s.subject)}</div>
                   <div className="text-gray-700 text-sm">
-                    {new Date(s.date).toLocaleDateString()} ·{" "}
-                    {new Date(s.startTime).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    -{" "}
-                    {new Date(s.endTime).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {new Date(s.date).toLocaleDateString()} ·{' '}
+                    {new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{' '}
+                    {new Date(s.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </div>
                 </li>
               ))}
