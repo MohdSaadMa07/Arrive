@@ -35,10 +35,21 @@ export const getAttendanceSummary = async (req, res) => {
         }
       },
       {
+        $addFields: {
+          attendancePercent: {
+            $multiply: [
+              { $divide: ["$lecturesAttended", "$totalSessions"] },
+              100
+            ]
+          }
+        }
+      },
+      {
         $project: {
           subject: "$_id",
           lecturesAttended: 1,
           totalSessions: 1,
+          attendancePercent: 1,
           _id: 0
         }
       }
@@ -49,4 +60,5 @@ export const getAttendanceSummary = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch attendance summary", error: error.message });
   }
 };
+
 

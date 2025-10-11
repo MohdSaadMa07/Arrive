@@ -99,56 +99,64 @@ export const verifyFaceAndMarkAttendance = async (req, res) => {
 
 export const getAttendanceSummary = async (req, res) => {
   try {
-    const studentUid = req.uid; // Assume authentication middleware sets this
-    
-    if (!studentUid) {
-      return res.status(401).json({ message: 'Unauthorized: Missing user ID' });
-    }
+    const studentUid = req.uid; // from authenticated user context
 
     const summary = await Attendance.aggregate([
+      { $match: { studentUid } },
       {
         $lookup: {
-          from: "sessions",
-          localField: "sessionId",
-          foreignField: "_id",
-          as: "sessionInfo"
-        }
+          from: 'sessions',
+          localField: 'sessionId',
+          foreignField: '_id',
+          as: 'session',
+        },
       },
-      { $unwind: "$sessionInfo" },
-      { $match: { studentUid, status: "present" } },
+      { $unwind: '$session' },
       {
         $group: {
-          _id: "$sessionInfo.subject",
-          lecturesAttended: { $sum: 1 }
-        }
-      },
-      {
-        $lookup: {
-          from: "sessions",
-          localField: "_id",
-          foreignField: "subject",
-          as: "subjectSessions"
-        }
-      },
-      {
-        $addFields: {
-          totalSessions: { $size: "$subjectSessions" }
-        }
+          _id: '$session.subject',
+          totalSessions: { $sum: 1 },
+          presentCount: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
+          absentCount: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
+        },
       },
       {
         $project: {
-          subject: "$_id",
-          lecturesAttended: 1,
-          totalSessions: 1,
           _id: 0,
-        }
-      }
+          subject: '$_id',
+          totalSessions: 1,
+          presentCount: 1,
+          absentCount: 1,
+          attendancePercent: { $multiply: [{ $divide: ['$presentCount', '$totalSessions'] }, 100] },
+        },
+      },
     ]);
 
-    res.status(200).json(summary);
+    res.json(summary);
+  } catch (err) {
+    console.error('Attendance summary error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
 
-  } catch (error) {
-    console.error('Error fetching attendance summary:', error);
-    res.status(500).json({ message: 'Failed to fetch attendance summary', error: error.message });
+export const markAttendance = async (req, res) => {
+  const { sessionId } = req.body;
+  const studentUid = req.uid;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Session ID required' });
+  }
+
+  try {
+    const attendanceRecord = await Attendance.findOneAndUpdate(
+      { sessionId, studentUid },
+      { status: 'present', markedAt: new Date() },
+      { upsert: true, new: true }
+    );
+
+    res.status(200).json({ message: 'Attendance marked successfully', attendanceRecord });
+  } catch (err) {
+    console.error('Error marking attendance:', err);
+    res.status(500).json({ error: 'Failed to mark attendance' });
   }
 };

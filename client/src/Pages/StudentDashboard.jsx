@@ -1,81 +1,49 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import useFirebaseAuthToken from '../hooks/useFirebaseAuthToken'; // Adjust path as needed
 import VerifyAttendance from "./VerifyAttendance";
-import { getAuth } from "firebase/auth";
-
-// Hook to get fresh Firebase ID token
-const useFirebaseAuthToken = () => {
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        const auth = getAuth();
-        const user = auth.currentUser;
-        if (user) {
-          const freshToken = await user.getIdToken(true); // force refresh
-          setToken(freshToken);
-        } else {
-          setToken(null);
-        }
-      } catch (error) {
-        console.error("Failed to fetch Firebase ID token:", error);
-        setToken(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchToken();
-  }, []);
-
-  return { token, loading };
-};
+import AttendanceSummary from "./AttendanceSummary";
 
 const StudentDashboard = () => {
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [attendanceStats, setAttendanceStats] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState(null);
+  // Destructure token and loading from custom hook
   const { token: authToken, loading: tokenLoading } = useFirebaseAuthToken();
 
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState(null);
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+
   useEffect(() => {
-    if (!authToken) return; // Wait until token is available
-
-    const fetchSessionsAndAttendance = async () => {
-      setLoading(true);
-      setError(null);
+    let mounted = true;
+    const fetchSessions = async () => {
+      setSessionsLoading(true);
+      setSessionsError(null);
       try {
-        // Fetch all sessions (public endpoint)
-        const sessionsRes = await fetch("http://localhost:5000/api/sessions");
-        if (!sessionsRes.ok)
-          throw new Error(`Failed to fetch sessions: ${sessionsRes.statusText}`);
-        const sessionsData = await sessionsRes.json();
-        setSessions(sessionsData);
-
-        // Fetch attendance summary (protected endpoint)
-        const attendanceRes = await fetch(
-          "http://localhost:5000/api/attendance/",
-          {
-            headers: { Authorization: `Bearer ${authToken}` },
-          }
-        );
-        if (!attendanceRes.ok) throw new Error("Failed to fetch attendance summary");
-        const attendanceData = await attendanceRes.json();
-        setAttendanceStats(attendanceData);
+        const res = await fetch("http://localhost:5000/api/sessions");
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`Failed to fetch sessions: ${res.status} ${txt}`);
+        }
+        const data = await res.json();
+        if (mounted) setSessions(Array.isArray(data) ? data : data.sessions || []);
       } catch (err) {
-        setError(err.message);
+        console.error("Sessions fetch error:", err);
+        if (mounted) setSessionsError(err.message || "Failed to fetch sessions");
       } finally {
-        setLoading(false);
+        if (mounted) setSessionsLoading(false);
       }
     };
 
-    fetchSessionsAndAttendance();
-  }, [authToken]);
+    fetchSessions();
+    return () => (mounted = false);
+  }, []);
 
   const handleMarkAttendanceClick = (sessionId) => {
+    if (!authToken) {
+      alert("Please sign in to verify and mark attendance.");
+      return;
+    }
     setCurrentSessionId(sessionId);
     setIsModalOpen(true);
   };
@@ -85,10 +53,33 @@ const StudentDashboard = () => {
     setCurrentSessionId(null);
   };
 
-  const submitAttendance = (sessionId) => {
-    console.log(`Submitting attendance for session ${sessionId} after verification.`);
-    alert(`Attendance verified and marked for session ${sessionId}! ✅`);
-    closeModal();
+  const submitAttendance = async (sessionId) => {
+    if (!authToken) {
+      alert("Authentication required to mark attendance.");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:5000/api/attendance/mark", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to mark attendance");
+      }
+
+      await res.json();
+      closeModal();
+      alert("Attendance verified and marked successfully! ✅");
+    } catch (error) {
+      alert(`Error marking attendance: ${error.message}`);
+    }
   };
 
   if (tokenLoading) {
@@ -101,12 +92,11 @@ const StudentDashboard = () => {
         University Attendance Dashboard
       </h1>
 
-      {loading && <p className="text-center text-indigo-600 text-lg">Loading sessions…</p>}
-      {error && <p className="text-center text-red-600 font-semibold">{error}</p>}
+      {sessionsLoading && <p className="text-center text-indigo-600 text-lg">Loading sessions…</p>}
+      {sessionsError && <p className="text-center text-red-600 font-semibold">{sessionsError}</p>}
 
-      {!loading && !error && (
+      {!sessionsLoading && !sessionsError && (
         <>
-          {/* Sessions Grid */}
           <section className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
             {sessions.map(({ _id, subject, date, startTime, endTime }) => (
               <article
@@ -120,22 +110,12 @@ const StudentDashboard = () => {
               >
                 <div>
                   <h2 className="text-2xl font-semibold text-gray-900 mb-2">{subject}</h2>
-                  <time
-                    dateTime={date}
-                    className="block text-gray-600 tracking-wide font-mono text-sm"
-                  >
+                  <time dateTime={date} className="block text-gray-600 tracking-wide font-mono text-sm">
                     {new Date(date).toLocaleDateString()}
                   </time>
                   <p className="mt-1 text-gray-700 font-medium tracking-wide">
-                    {new Date(startTime).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    -{" "}
-                    {new Date(endTime).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {new Date(startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                    {new Date(endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
                 <button
@@ -149,38 +129,8 @@ const StudentDashboard = () => {
             ))}
           </section>
 
-          {/* Attendance Stats Section */}
-          <section className="mt-16 bg-white rounded-lg shadow-inner py-10 px-8">
-            <h2 className="text-center text-3xl font-bold mb-10 text-gray-900 tracking-tight">
-              Subject-wise Attendance
-            </h2>
-            <ul className="max-w-4xl mx-auto space-y-8">
-              {attendanceStats.map(({ subject, lecturesAttended, totalSessions }) => {
-                const percent =
-                  totalSessions > 0 ? (lecturesAttended / totalSessions) * 100 : 0;
-                return (
-                  <li key={subject} className="flex items-center justify-between space-x-6">
-                    <span className="font-semibold text-gray-800 w-40">{subject}</span>
-                    <div
-                      className="flex-grow bg-gray-200 rounded-full h-7 shadow-inner overflow-hidden"
-                      role="progressbar"
-                      aria-label={`Attendance for ${subject}`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={percent.toFixed(0)}
-                    >
-                      <div
-                        className="bg-indigo-600 h-7 rounded-full transition-width duration-700 ease-in-out"
-                        style={{ width: `${percent}%` }}
-                      />
-                    </div>
-                    <span className="font-semibold text-gray-900 w-12 text-right">
-                      {percent.toFixed(2)}%
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+          <section className="mt-16">
+            <AttendanceSummary authToken={authToken} />
           </section>
         </>
       )}
@@ -190,6 +140,7 @@ const StudentDashboard = () => {
           sessionId={currentSessionId}
           closeModal={closeModal}
           onVerificationSuccess={submitAttendance}
+          authToken={authToken}
         />
       )}
     </main>
