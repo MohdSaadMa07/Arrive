@@ -97,47 +97,6 @@ export const verifyFaceAndMarkAttendance = async (req, res) => {
   }
 };
 
-export const getAttendanceSummary = async (req, res) => {
-  try {
-    const studentUid = req.uid; // from authenticated user context
-
-    const summary = await Attendance.aggregate([
-      { $match: { studentUid } },
-      {
-        $lookup: {
-          from: 'sessions',
-          localField: 'sessionId',
-          foreignField: '_id',
-          as: 'session',
-        },
-      },
-      { $unwind: '$session' },
-      {
-        $group: {
-          _id: '$session.subject',
-          totalSessions: { $sum: 1 },
-          presentCount: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
-          absentCount: { $sum: { $cond: [{ $eq: ['$status', 'absent'] }, 1, 0] } },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          subject: '$_id',
-          totalSessions: 1,
-          presentCount: 1,
-          absentCount: 1,
-          attendancePercent: { $multiply: [{ $divide: ['$presentCount', '$totalSessions'] }, 100] },
-        },
-      },
-    ]);
-
-    res.json(summary);
-  } catch (err) {
-    console.error('Attendance summary error:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-};
 
 export const markAttendance = async (req, res) => {
   const { sessionId } = req.body;
@@ -148,9 +107,28 @@ export const markAttendance = async (req, res) => {
   }
 
   try {
+    // Fetch the session document
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const now = new Date();
+
+    // Enforce session time window
+    if (now < session.startTime || now > session.endTime) {
+      return res.status(400).json({
+        error: "Attendance can only be marked during the scheduled session time.",
+        sessionStart: session.startTime,
+        sessionEnd: session.endTime,
+        currentTime: now,
+      });
+    }
+
+    // If within time window, proceed
     const attendanceRecord = await Attendance.findOneAndUpdate(
       { sessionId, studentUid },
-      { status: 'present', markedAt: new Date() },
+      { status: 'present', markedAt: now },
       { upsert: true, new: true }
     );
 
@@ -160,3 +138,4 @@ export const markAttendance = async (req, res) => {
     res.status(500).json({ error: 'Failed to mark attendance' });
   }
 };
+

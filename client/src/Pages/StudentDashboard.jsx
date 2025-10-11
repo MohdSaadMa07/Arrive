@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
-import useFirebaseAuthToken from '../hooks/useFirebaseAuthToken'; // Adjust path as needed
+import UseFirebaseAuthToken from '../hooks/useFirebaseAuthToken'; // Adjust path if needed
 import VerifyAttendance from "./VerifyAttendance";
 import AttendanceSummary from "./AttendanceSummary";
 
 const StudentDashboard = () => {
-  // Destructure token and loading from custom hook
-  const { token: authToken, loading: tokenLoading } = useFirebaseAuthToken();
+  const { token: authToken, loading: tokenLoading } = UseFirebaseAuthToken();
 
   const [sessions, setSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -14,29 +13,33 @@ const StudentDashboard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState(null);
 
+  const [verificationStatus, setVerificationStatus] = useState(""); // Added here
+
   useEffect(() => {
     let mounted = true;
     const fetchSessions = async () => {
-      setSessionsLoading(true);
-      setSessionsError(null);
-      try {
-        const res = await fetch("http://localhost:5000/api/sessions");
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(`Failed to fetch sessions: ${res.status} ${txt}`);
-        }
-        const data = await res.json();
-        if (mounted) setSessions(Array.isArray(data) ? data : data.sessions || []);
-      } catch (err) {
-        console.error("Sessions fetch error:", err);
-        if (mounted) setSessionsError(err.message || "Failed to fetch sessions");
-      } finally {
-        if (mounted) setSessionsLoading(false);
-      }
-    };
+  setSessionsLoading(true);
+  setSessionsError(null);
+  try {
+    const res = await fetch("http://localhost:5000/api/sessions");
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Failed to fetch sessions: ${res.status} ${txt}`);
+    }
+    const data = await res.json();
+    const sessionsArray = Array.isArray(data) ? data : data.sessions || [];
+    // Sort by createdAt descending
+    const sortedSessions = sessionsArray.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    if (mounted) setSessions(sortedSessions);
+  } catch {
+    if (mounted) setSessionsError("Failed to fetch sessions");
+  } finally {
+    if (mounted) setSessionsLoading(false);
+  }
+};
 
     fetchSessions();
-    return () => (mounted = false);
+    return () => { mounted = false; };
   }, []);
 
   const handleMarkAttendanceClick = (sessionId) => {
@@ -45,12 +48,14 @@ const StudentDashboard = () => {
       return;
     }
     setCurrentSessionId(sessionId);
+    setVerificationStatus(""); // Reset message
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setCurrentSessionId(null);
+    setVerificationStatus(""); // Reset message
   };
 
   const submitAttendance = async (sessionId) => {
@@ -58,23 +63,27 @@ const StudentDashboard = () => {
       alert("Authentication required to mark attendance.");
       return;
     }
-
+    setVerificationStatus(""); // Clear previous status
     try {
       const res = await fetch("http://localhost:5000/api/attendance/mark", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${authToken}`,
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({ sessionId }),
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to mark attendance");
+        if (data.error?.toLowerCase().includes("attendance can only be marked")) {
+          setVerificationStatus(data.error);
+          return;
+        }
+        throw new Error(data.error || "Failed to mark attendance");
       }
 
-      await res.json();
       closeModal();
       alert("Attendance verified and marked successfully! ✅");
     } catch (error) {
@@ -141,6 +150,8 @@ const StudentDashboard = () => {
           closeModal={closeModal}
           onVerificationSuccess={submitAttendance}
           authToken={authToken}
+          verificationStatus={verificationStatus}
+          setVerificationStatus={setVerificationStatus}
         />
       )}
     </main>

@@ -1,18 +1,18 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import * as faceapi from 'face-api.js';
 
-const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
+const VerifyAttendance = ({
+  sessionId,
+  closeModal,
+  onVerificationSuccess,
+  verificationStatus,
+  setVerificationStatus,
+}) => {
   const videoRef = useRef(null);
-  const [verificationStatus, setVerificationStatus] = useState("Awaiting face capture...");
-  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = React.useState(false);
 
-  // Model loading logic
   useEffect(() => {
     const loadModels = async () => {
-      if (!faceapi || !faceapi.nets) {
-        setVerificationStatus("Error: face-api.js is not loaded. Check script tag setup.");
-        return;
-      }
       try {
         const MODEL_URL = "/models";
         await Promise.all([
@@ -27,15 +27,15 @@ const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
     };
     loadModels();
 
-    // Cleanup camera on unmount
+    // Cleanup video stream properly
+    const videoElement = videoRef.current;
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      if (videoElement?.srcObject) {
+        videoElement.srcObject.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [setVerificationStatus]);
 
-  // Start camera after models are loaded
   useEffect(() => {
     if (!modelsLoaded) return;
     const startCamera = async () => {
@@ -47,7 +47,7 @@ const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
       }
     };
     startCamera();
-  }, [modelsLoaded]);
+  }, [modelsLoaded, setVerificationStatus]);
 
   const handleVerification = async () => {
     setVerificationStatus("Processing facial verification...");
@@ -70,7 +70,6 @@ const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
         return;
       }
 
-      // Send to backend
       const res = await fetch("http://localhost:5000/api/users/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,9 +101,10 @@ const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
         <div className="aspect-video bg-gray-200 rounded-lg overflow-hidden mb-6 border-2 border-indigo-300">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         </div>
-        <p className={`text-center font-semibold mb-6 ${verificationStatus.includes("Error") ? "text-red-500" : "text-gray-700"}`}>
-          {verificationStatus}
-        </p>
+        <p className="text-center font-semibold mb-6 text-red-500">
+  {verificationStatus}
+</p>
+
         <div className="flex justify-between space-x-4">
           <button
             onClick={closeModal}
@@ -117,7 +117,8 @@ const VerifyAttendance = ({ sessionId, closeModal, onVerificationSuccess }) => {
             onClick={handleVerification}
             className="flex-1 rounded-lg bg-indigo-600 text-white py-3 font-semibold shadow-md hover:bg-indigo-700"
             disabled={
-              verificationStatus.includes("Error") ||
+              (verificationStatus.toLowerCase().includes("error") &&
+               !verificationStatus.toLowerCase().includes("attendance can only be marked")) ||
               verificationStatus.includes("Processing") ||
               verificationStatus.includes("Successful") ||
               !modelsLoaded

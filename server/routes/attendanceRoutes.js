@@ -1,5 +1,6 @@
 import express from 'express';
-import { getAttendanceSummary, markAttendance } from '../controllers/attendanceController.js';
+import { markAttendance } from '../controllers/attendanceController.js';
+import { getAttendanceSummary } from '../controllers/attendanceSummary.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = express.Router();

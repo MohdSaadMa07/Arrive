@@ -1,45 +1,52 @@
-import Attendance from '../models/attendance.js';
+import Session from '../models/sessionModel.js';
 
 export const getAttendanceSummary = async (req, res) => {
   try {
-    const studentUid = req.uid; // Set by auth middleware
+    const studentUid = req.uid;
 
-    const summary = await Attendance.aggregate([
-      { $match: { studentUid, status: "present" } },
-      {
-        $lookup: {
-          from: "sessions",
-          localField: "sessionId",
-          foreignField: "_id",
-          as: "sessionInfo"
-        }
-      },
-      { $unwind: "$sessionInfo" },
+    const summary = await Session.aggregate([
+      // Step 1: group all sessions by subject
       {
         $group: {
-          _id: "$sessionInfo.subject",
-          lecturesAttended: { $sum: 1 }
+          _id: "$subject",
+          sessionIds: { $push: "$_id" },     // collect all session IDs of subject
+          totalSessions: { $sum: 1 }
         }
       },
+      // Step 2: $lookup: Find all attendance records for these sessions & this student
       {
         $lookup: {
-          from: "sessions",
-          localField: "_id",
-          foreignField: "subject",
-          as: "allSessions"
+          from: "attendances",
+          let: { sessionIds: "$sessionIds" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ["$sessionId", "$$sessionIds"] },
+                    { $eq: ["$studentUid", studentUid] },
+                    { $eq: ["$status", "present"] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "attendedList"
         }
       },
+      // Step 3: Add attendance count and percent
       {
         $addFields: {
-          totalSessions: { $size: "$allSessions" }
-        }
-      },
-      {
-        $addFields: {
+          lecturesAttended: { $size: "$attendedList" },
+          absent: { $subtract: ["$totalSessions", { $size: "$attendedList" }] }, // count absent too
           attendancePercent: {
-            $multiply: [
-              { $divide: ["$lecturesAttended", "$totalSessions"] },
-              100
+            $cond: [
+              { $gt: ["$totalSessions", 0] },
+              { $multiply: [
+                  { $divide: [ { $size: "$attendedList" }, "$totalSessions" ] }, 100
+                ]
+              },
+              0
             ]
           }
         }
@@ -47,8 +54,9 @@ export const getAttendanceSummary = async (req, res) => {
       {
         $project: {
           subject: "$_id",
-          lecturesAttended: 1,
           totalSessions: 1,
+          lecturesAttended: 1,
+          absent: 1,
           attendancePercent: 1,
           _id: 0
         }
@@ -60,5 +68,3 @@ export const getAttendanceSummary = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch attendance summary", error: error.message });
   }
 };
-
-
