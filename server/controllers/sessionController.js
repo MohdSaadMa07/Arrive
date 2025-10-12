@@ -1,27 +1,31 @@
 import Session from '../models/sessionModel.js';
 
-// Create a new session — accept subject name directly without validating Subject collection
 export const createSession = async (req, res) => {
   try {
-    console.log('Request Body:', req.body);
     const { subject, facultyId, date, startTime, endTime, latitude, longitude } = req.body;
 
     if (!(subject && facultyId && date && startTime && endTime && latitude !== undefined && longitude !== undefined)) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
+    // Parse as local IST
+    const startTimeIST = new Date(startTime);
+    const endTimeIST = new Date(endTime);
+    if (endTimeIST <= startTimeIST) {
+      return res.status(400).json({ message: "Session end time must be after start time." });
+    }
+
     const session = new Session({
       subject,
       facultyId,
       date: new Date(date),
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: startTimeIST,
+      endTime: endTimeIST,
       latitude,
       longitude,
     });
 
     await session.save();
-
     res.status(201).json(session);
   } catch (error) {
     console.error('Create session error:', error);

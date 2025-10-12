@@ -12,6 +12,9 @@ const euclideanDistance = (desc1, desc2) => {
   return Math.sqrt(sumOfSquares);
 };
 
+// Always compare using UTC dates
+const toUTC = (date) => new Date(date.toISOString());
+
 export const verifyFaceAndMarkAttendance = async (req, res) => {
   const { candidateDescriptor, sessionId } = req.body;
   const DISTANCE_THRESHOLD = 0.6;
@@ -24,29 +27,33 @@ export const verifyFaceAndMarkAttendance = async (req, res) => {
   }
 
   try {
-    // Fetch session to validate attendance time window
     const session = await Session.findById(sessionId);
     if (!session) {
       return res.status(404).json({ message: "Session not found." });
     }
 
     const now = new Date();
+    const startTime = new Date(session.startTime);
+    const endTime = new Date(session.endTime);
 
-    // DEBUG LOG — confirm times
-    console.log("Now:", now);
-    console.log("Session startTime:", session.startTime);
-    console.log("Session endTime:", session.endTime);
+    // Always compare UTC values
+    const nowUTC = toUTC(now);
+    const startUTC = toUTC(startTime);
+    const endUTC = toUTC(endTime);
 
-    if (now < session.startTime || now > session.endTime) {
+    console.log('now (ISO):', nowUTC.toISOString());
+    console.log('startTime (ISO):', startUTC.toISOString());
+    console.log('endTime (ISO):', endUTC.toISOString());
+
+    if (nowUTC < startUTC || nowUTC > endUTC) {
       return res.status(400).json({
         message: "Attendance can only be marked during the scheduled session time.",
-        sessionStart: session.startTime,
-        sessionEnd: session.endTime,
-        currentTime: now,
+        sessionStart: startUTC.toISOString(),
+        sessionEnd: endUTC.toISOString(),
+        currentTime: nowUTC.toISOString(),
       });
     }
 
-    // Fetch all registered users with face descriptors
     const registeredUsers = await User.find({}).select(
       "uid fullName role studentId facultyId faceDescriptor"
     );
@@ -66,10 +73,9 @@ export const verifyFaceAndMarkAttendance = async (req, res) => {
     }
 
     if (lowestDistance <= DISTANCE_THRESHOLD && bestMatch) {
-      // Mark attendance present or update existing record
       await Attendance.findOneAndUpdate(
         { sessionId, studentUid: bestMatch.uid },
-        { status: "present", markedAt: now },
+        { status: "present", markedAt: nowUTC },
         { upsert: true, new: true }
       );
 
@@ -97,7 +103,6 @@ export const verifyFaceAndMarkAttendance = async (req, res) => {
   }
 };
 
-
 export const markAttendance = async (req, res) => {
   const { sessionId } = req.body;
   const studentUid = req.uid;
@@ -107,15 +112,13 @@ export const markAttendance = async (req, res) => {
   }
 
   try {
-    // Fetch the session document
     const session = await Session.findById(sessionId);
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Always use local IST times (no conversion)
     const now = new Date();
-
-    // Enforce session time window
     if (now < session.startTime || now > session.endTime) {
       return res.status(400).json({
         error: "Attendance can only be marked during the scheduled session time.",
@@ -125,7 +128,6 @@ export const markAttendance = async (req, res) => {
       });
     }
 
-    // If within time window, proceed
     const attendanceRecord = await Attendance.findOneAndUpdate(
       { sessionId, studentUid },
       { status: 'present', markedAt: now },
@@ -134,8 +136,62 @@ export const markAttendance = async (req, res) => {
 
     res.status(200).json({ message: 'Attendance marked successfully', attendanceRecord });
   } catch (err) {
-    console.error('Error marking attendance:', err);
     res.status(500).json({ error: 'Failed to mark attendance' });
   }
 };
 
+// Corrected session creation: always store start/end in UTC with "Z"
+export const createSession = async (req, res) => {
+  try {
+    console.log('Request Body:', req.body);
+    const { subject, facultyId, date, startTime, endTime, latitude, longitude } = req.body;
+
+    if (!(subject && facultyId && date && startTime && endTime && latitude !== undefined && longitude !== undefined)) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Compose start/end as ISO UTC string and parse as Date, for MongoDB to store in UTC
+    const startISO = new Date(`${date}T${startTime}:00.000Z`);
+    const endISO = new Date(`${date}T${endTime}:00.000Z`);
+
+    const session = new Session({
+      subject,
+      facultyId,
+      date: new Date(date), // still stores at 00:00 UTC of that date
+      startTime: startISO,
+      endTime: endISO,
+      latitude,
+      longitude,
+    });
+
+    await session.save();
+    res.status(201).json(session);
+  } catch (error) {
+    console.error('Create session error:', error);
+    res.status(500).json({ message: 'Failed to create session', error: error.message });
+  }
+};
+
+export const getSessionsByFaculty = async (req, res) => {
+  try {
+    const { facultyId } = req.query;
+    let sessions;
+    if (facultyId) {
+      sessions = await Session.find({ facultyId });
+    } else {
+      sessions = await Session.find();
+    }
+    res.status(200).json(sessions);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch sessions", error: error.message });
+  }
+};
+
+export const getAllSessions = async (req, res) => {
+  try {
+    const sessions = await Session.find();
+    res.status(200).json(sessions);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch sessions", error: error.message });
+  }
+};

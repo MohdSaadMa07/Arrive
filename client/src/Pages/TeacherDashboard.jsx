@@ -93,41 +93,48 @@ const TeacherDashboard = ({ user }) => {
     );
   };
 
-  const handleCreateSession = async (e) => {
-    e.preventDefault();
+const handleCreateSession = async (e) => {
+  e.preventDefault();
+  setError(null);
+  if (!subjectName || !date || !startTime || !endTime) {
+    setError("Please fill all fields");
+    return;
+  }
+  setCreating(true);
+  try {
+    // Compose local IST datetime string (no Z!)
+    // Example: "2025-10-12T11:22"
+    const startIST = `${date}T${startTime}`;
+    const endIST = `${date}T${endTime}`;
+
+    const newSession = {
+      subject: subjectName,
+      facultyId: user.facultyId,
+      date,
+      startTime: startIST, // local IST string
+      endTime: endIST, // local IST string
+      latitude,
+      longitude,
+    };
+
+    const res = await fetch("http://localhost:5000/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newSession),
+    });
+    if (!res.ok) throw new Error("Failed to create session");
+    setDate("");
+    setStartTime("");
+    setEndTime("");
     setError(null);
-    if (!subjectName || !date || !startTime || !endTime) {
-      setError("Please fill all fields");
-      return;
-    }
-    setCreating(true);
-    try {
-      const newSession = {
-        subject: subjectName,
-        facultyId: user.facultyId,
-        date,
-        startTime: new Date(`${date}T${startTime}`),
-        endTime: new Date(`${date}T${endTime}`),
-        latitude,
-        longitude,
-      };
-      const res = await fetch("http://localhost:5000/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSession),
-      });
-      if (!res.ok) throw new Error("Failed to create session");
-      setDate("");
-      setStartTime("");
-      setEndTime("");
-      setError(null);
-      alert("Session created successfully!");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCreating(false);
-    }
-  };
+    alert("Session created successfully!");
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setCreating(false);
+  }
+};
+
 
   const handleSearchStudent = () => {
     setSearchError(null);
