@@ -28,9 +28,10 @@ const startServer = async () => {
 
 
     // Register routes
-    app.use('/api/users', userRoutes);
     app.use('/api/sessions', sessionRoutes);
-    app.use('/api/attendance', attendanceRoutes);
+    app.use('/api/users', userRoutes); // userRoutes.js
+    app.use('/api/attendance', attendanceRoutes); // attendanceRoutes.js
+
 
     // Error handling middleware
     app.use((err, req, res, next) => {

@@ -1,6 +1,7 @@
 import User from '../models/userModel.js';
 import Attendance from '../models/attendance.js';
 import Session from '../models/sessionModel.js';
+import mailService from '../services/mail.js';
 
 // Helper: Euclidean distance for face descriptors
 const euclideanDistance = (desc1, desc2) => {
@@ -193,5 +194,129 @@ export const getAllSessions = async (req, res) => {
     res.status(200).json(sessions);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch sessions", error: error.message });
+  }
+};
+
+export const getAllStudents = async (req, res) => {
+  try {
+    const students = await User.find({ role: "student" }).select('uid fullName email');
+    res.json(students);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch students", error: error.message });
+  }
+};
+
+export const getAttendanceSummaryByUid = async (req, res) => {
+  try {
+    const studentUid = req.params.studentUid;
+    const summary = await Session.aggregate([
+      // Step 1: group all sessions by subject
+      {
+        $group: {
+          _id: "$subject",
+          sessionIds: { $push: "$_id" },     // collect all session IDs of subject
+          totalSessions: { $sum: 1 }
+        }
+      },
+      // Step 2: $lookup: Find all attendance records for these sessions & this student
+      {
+        $lookup: {
+          from: "attendances",
+          let: { sessionIds: "$sessionIds" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ["$sessionId", "$$sessionIds"] },
+                    { $eq: ["$studentUid", studentUid] },
+                    { $eq: ["$status", "present"] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "attendedList"
+        }
+      },
+      // Step 3: Add attendance count and percent
+      {
+        $addFields: {
+          lecturesAttended: { $size: "$attendedList" },
+          absent: { $subtract: ["$totalSessions", { $size: "$attendedList" }] }, // count absent too
+          attendancePercent: {
+            $cond: [
+              { $gt: ["$totalSessions", 0] },
+              { $multiply: [
+                  { $divide: [ { $size: "$attendedList" }, "$totalSessions" ] }, 100
+                ]
+              },
+              0
+            ]
+          }
+        }
+      },
+      {
+        $project: {
+          subject: "$_id",
+          totalSessions: 1,
+          lecturesAttended: 1,
+          absent: 1,
+          attendancePercent: 1,
+          _id: 0
+        }
+      }
+    ]);
+
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch attendance summary", error: error.message });
+  }
+};
+
+const generateNoticeText = (studentName, teacherName) => `
+Dear ${studentName},
+
+We hope this message finds you well.
+
+This is to inform you that your attendance record has been reviewed, and unfortunately, your current attendance percentage has fallen below the required threshold for satisfactory academic progress.
+
+Consistent attendance is essential for your academic success and to fully benefit from the learning experience. We strongly encourage you to improve your attendance and take necessary actions to avoid any further academic consequences.
+
+If there are any valid reasons affecting your attendance, such as illness or other personal circumstances, please communicate them to your faculty or administration as soon as possible.
+
+Should you require any assistance or guidance, feel free to reach out to the academic office.
+
+Thank you for your immediate attention to this matter.
+
+Sincerely,
+${teacherName}
+`;
+
+export const sendAttendanceNotice = async (req, res) => {
+  const { studentUid, subject } = req.body;
+  console.log("sendAttendanceNotice called with:", req.body);
+
+  try {
+    const student = await User.findOne({ uid: studentUid });
+    if (!student) {
+      console.error("Student not found with UID:", studentUid);
+      return res.status(404).json({ message: 'Student not found' });
+    }
+    if (!student.email) {
+      console.error("Student found but no email:", studentUid);
+      return res.status(404).json({ message: 'Student email not found' });
+    }
+
+    const message = generateNoticeText(student.fullName, req.user?.fullName || "Your Faculty");
+    await mailService.sendMail({
+      to: student.email,
+      subject: subject || 'Attendance Warning Notice',
+      text: message,
+    });
+    res.json({ success: true, message: 'Notice sent successfully' });
+  } catch (error) {
+    console.error("Error in sendAttendanceNotice:", error);
+    res.status(500).json({ message: 'Failed to send notice', error: error.message });
   }
 };
